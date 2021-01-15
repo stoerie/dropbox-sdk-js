@@ -29,3 +29,11 @@ export function isWindowOrWorker() {
     )
   );
 }
+
+export function isBrowserEnv() {
+  if (typeof window !== 'undefined') {
+    return true;
+  }
+
+  return false;
+}

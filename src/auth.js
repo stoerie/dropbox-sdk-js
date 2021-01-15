@@ -1,15 +1,15 @@
-import { getTokenExpiresAtDate } from './utils.js';
+import { getTokenExpiresAtDate, isBrowserEnv } from './utils.js';
 import { parseResponse } from './response.js';
 
 let fetch;
-if (typeof window !== 'undefined') {
+if (isBrowserEnv()) {
   fetch = window.fetch.bind(window);
 } else {
   fetch = require('node-fetch'); // eslint-disable-line global-require
 }
 
 let crypto;
-if (typeof window !== 'undefined') {
+if (isBrowserEnv()) {
   crypto = window.crypto || window.msCrypto; // for IE11
 } else {
   crypto = require('crypto'); // eslint-disable-line global-require
@@ -142,22 +142,41 @@ export default class DropboxAuth {
   }
 
   generatePKCECodes() {
-    let codeVerifier = crypto.randomBytes(PKCELength);
-    codeVerifier = codeVerifier.toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '')
-      .substr(0, 128);
+    let codeVerifier;
+    function convertToStringAndReplace(toBeConverted) {
+      const convertedString = toBeConverted.toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+      return convertedString;
+    }
+
+    if (isBrowserEnv()) {
+      const array = new Uint32Array(10);
+      crypto.getRandomValue(array)
+        .then((randomValueArray) => {
+          codeVerifier = convertToStringAndReplace(randomValueArray).substr(0, 128);
+        });
+    } else {
+      const randomBytes = crypto.randomBytes(PKCELength);
+      codeVerifier = convertToStringAndReplace(randomBytes).substr(0, 128);
+    }
     this.codeVerifier = codeVerifier;
 
     const encoder = new Encoder();
     const codeData = encoder.encode(codeVerifier);
-    let codeChallenge = crypto.createHash('sha256').update(codeData).digest();
-    codeChallenge = codeChallenge.toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
+    let codeChallenge;
+    if (isBrowserEnv()) {
+      crypto.createHash('sha256').update(codeData).digest()
+        .then((digestedHash) => {
+          codeChallenge = convertToStringAndReplace(digestedHash);
+        });
+    } else {
+      codeChallenge = crypto.createHash('sha256').update(codeData).digest();
+    }
     this.codeChallenge = codeChallenge;
+    // guaranting a promise return to keep code consistent
+    Promise.resolve();
   }
 
   /**
@@ -181,7 +200,7 @@ export default class DropboxAuth {
    * @arg {boolean} [usePKCE] - Whether or not to use Sha256 based PKCE. PKCE should be only use on
    * client apps which doesn't call your server. It is less secure than non-PKCE flow but
    * can be used if you are unable to safely retrieve your app secret
-   * @returns {String} Url to send user to for Dropbox API authentication
+   * @returns {Promise<*>} Returns a Promise with the url string as the response
    */
   getAuthenticationUrl(redirectUri, state, authType = 'token', tokenAccessType = null, scope = null, includeGrantedScopes = 'none', usePKCE = false) {
     const clientId = this.getClientId();
@@ -207,33 +226,37 @@ export default class DropboxAuth {
     }
 
     let authUrl;
-    if (authType === 'code') {
-      authUrl = `${baseUrl}?response_type=code&client_id=${clientId}`;
-    } else {
-      authUrl = `${baseUrl}?response_type=token&client_id=${clientId}`;
-    }
+    return new Promise((resolve) => {
+      if (authType === 'code') {
+        authUrl = `${baseUrl}?response_type=code&client_id=${clientId}`;
+      } else {
+        authUrl = `${baseUrl}?response_type=token&client_id=${clientId}`;
+      }
 
-    if (redirectUri) {
-      authUrl += `&redirect_uri=${redirectUri}`;
-    }
-    if (state) {
-      authUrl += `&state=${state}`;
-    }
-    if (tokenAccessType) {
-      authUrl += `&token_access_type=${tokenAccessType}`;
-    }
-    if (scope) {
-      authUrl += `&scope=${scope.join(' ')}`;
-    }
-    if (includeGrantedScopes !== 'none') {
-      authUrl += `&include_granted_scopes=${includeGrantedScopes}`;
-    }
-    if (usePKCE) {
-      this.generatePKCECodes();
-      authUrl += '&code_challenge_method=S256';
-      authUrl += `&code_challenge=${this.codeChallenge}`;
-    }
-    return authUrl;
+      if (redirectUri) {
+        authUrl += `&redirect_uri=${redirectUri}`;
+      }
+      if (state) {
+        authUrl += `&state=${state}`;
+      }
+      if (tokenAccessType) {
+        authUrl += `&token_access_type=${tokenAccessType}`;
+      }
+      if (scope) {
+        authUrl += `&scope=${scope.join(' ')}`;
+      }
+      if (includeGrantedScopes !== 'none') {
+        authUrl += `&include_granted_scopes=${includeGrantedScopes}`;
+      }
+      if (usePKCE) {
+        this.generatePKCECodes()
+          .then(() => {
+            authUrl += '&code_challenge_method=S256';
+            authUrl += `&code_challenge=${this.codeChallenge}`;
+          });
+      }
+      resolve(authUrl);
+    });
   }
 
   /**
@@ -343,7 +366,11 @@ export default class DropboxAuth {
    */
   authenticateWithCordova(successCallback, errorCallback) {
     const redirectUrl = 'https://www.dropbox.com/1/oauth2/redirect_receiver';
-    const url = this.getAuthenticationUrl(redirectUrl);
+    let url;
+    this.getAuthenticationUrl(redirectUrl)
+      .then((res) => {
+        url = res;
+      });
 
     let removed = false;
     const browser = window.open(url, '_blank');

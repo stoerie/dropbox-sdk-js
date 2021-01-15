@@ -19,12 +19,13 @@ const { Dropbox } = require('dropbox'); // eslint-disable-line import/no-unresol
 const dbx = new Dropbox(config);
 
 const redirectUri = `http://${hostname}:${port}/auth`;
-const authUrl = dbx.auth.getAuthenticationUrl(redirectUri, null, 'code', 'offline', null, 'none', true);
-
-app.get('/', (req, res) => {
-  res.writeHead(302, { Location: authUrl });
-  res.end();
-});
+dbx.auth.getAuthenticationUrl(redirectUri, null, 'code', 'offline', null, 'none', true)
+  .then((authUrl) => {
+    app.get('/', (req, res) => {
+      res.writeHead(302, { Location: authUrl });
+      res.end();
+    });
+  });
 
 app.get('/auth', (req, res) => { // eslint-disable-line no-unused-vars
   const { code } = req.query;

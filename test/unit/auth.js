@@ -62,10 +62,10 @@ describe('DropboxAuth', () => {
 
     it('throws an error if the redirect url isn\'t set and type is code', () => {
       const dbx = new Dropbox({ clientId: 'CLIENT_ID' });
-      chai.assert.equal(
-        dbx.auth.getAuthenticationUrl('', null, 'code'),
-        'https://www.dropbox.com/oauth2/authorize?response_type=code&client_id=CLIENT_ID',
-      );
+      dbx.auth.getAuthenticationUrl('', null, 'code')
+        .then((authUrl) => {
+          chai.assert.equal(authUrl, 'https://www.dropbox.com/oauth2/authorize?response_type=code&client_id=CLIENT_ID');
+        });
     });
 
     it('returns correct auth url with all combinations of valid input', () => {
@@ -75,39 +75,42 @@ describe('DropboxAuth', () => {
           for (const tokenAccessType of [null, 'legacy', 'offline', 'online']) {
             for (const scope of [null, ['files.metadata.read', 'files.metadata.write']]) {
               for (const includeGrantedScopes of ['none', 'user', 'team']) {
-                const url = dbx.auth.getAuthenticationUrl(redirectUri, state, 'code', tokenAccessType, scope, includeGrantedScopes);
+                let url;
+                dbx.auth.getAuthenticationUrl(redirectUri, state, 'code', tokenAccessType, scope, includeGrantedScopes)
+                  .then((authUrl) => {
+                    url = authUrl;
+                    chai.assert(url.startsWith('https://www.dropbox.com/oauth2/authorize?response_type=code&client_id=CLIENT_ID'));
 
-                chai.assert(url.startsWith('https://www.dropbox.com/oauth2/authorize?response_type=code&client_id=CLIENT_ID'));
+                    if (redirectUri) {
+                      chai.assert(url.includes(`&redirect_uri=${redirectUri}`));
+                    } else {
+                      chai.assert(!url.includes('&redirect_uri='));
+                    }
 
-                if (redirectUri) {
-                  chai.assert(url.includes(`&redirect_uri=${redirectUri}`));
-                } else {
-                  chai.assert(!url.includes('&redirect_uri='));
-                }
+                    if (state) {
+                      chai.assert(url.includes(`&state=${state}`));
+                    } else {
+                      chai.assert(!url.includes('&state='));
+                    }
 
-                if (state) {
-                  chai.assert(url.includes(`&state=${state}`));
-                } else {
-                  chai.assert(!url.includes('&state='));
-                }
+                    if (tokenAccessType) {
+                      chai.assert(url.includes(`&token_access_type=${tokenAccessType}`));
+                    } else {
+                      chai.assert(!url.includes('&token_access_type='));
+                    }
 
-                if (tokenAccessType) {
-                  chai.assert(url.includes(`&token_access_type=${tokenAccessType}`));
-                } else {
-                  chai.assert(!url.includes('&token_access_type='));
-                }
+                    if (scope) {
+                      chai.assert(url.includes(`&scope=${scope.join(' ')}`));
+                    } else {
+                      chai.assert(!url.includes('&scope='));
+                    }
 
-                if (scope) {
-                  chai.assert(url.includes(`&scope=${scope.join(' ')}`));
-                } else {
-                  chai.assert(!url.includes('&scope='));
-                }
-
-                if (includeGrantedScopes !== 'none') {
-                  chai.assert(url.includes(`&include_granted_scopes=${includeGrantedScopes}`));
-                } else {
-                  chai.assert(!url.includes('&include_granted_scopes='));
-                }
+                    if (includeGrantedScopes !== 'none') {
+                      chai.assert(url.includes(`&include_granted_scopes=${includeGrantedScopes}`));
+                    } else {
+                      chai.assert(!url.includes('&include_granted_scopes='));
+                    }
+                  });
               }
             }
           }
